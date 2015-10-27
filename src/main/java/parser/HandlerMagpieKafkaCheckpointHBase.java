@@ -703,7 +703,7 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
         public void run() {
             try {
                 dump();
-            } catch (Exception e) {
+            } catch (Throwable e) { // OOM exception will catch it.
                 //send monitor
                 final String exmsg = e.getMessage();
                 Thread sendMonitor = new Thread(new Runnable() {
@@ -879,6 +879,12 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
                 logger.info("fetch thread had been dead, reload the hob ......");
                 globalFetchThread = 1;
                 return;
+            }
+
+            /*check the thread dead*/
+            if(!fetcher.isAlive()) {
+                logger.info("fetcher thread is not alive, now reload it to set the global fetcher thread  = 1 ");
+                globalFetchThread = 1;
             }
         }
     }

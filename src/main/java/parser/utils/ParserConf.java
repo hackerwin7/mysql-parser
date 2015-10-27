@@ -45,7 +45,7 @@ public class ParserConf {
     public String minutePath = rootPath + "/minutes";
     //parser conf <database.table, topic> database.table could be a regex
     public int batchsize = 10000;
-    public int queuesize = 50000;
+    public int queuesize = 20000;
     public int minsec = 60;
     public int heartsec = 5 * 60;
     public int timeInterval = 1;
