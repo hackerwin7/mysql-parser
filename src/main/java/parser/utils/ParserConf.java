@@ -10,11 +10,7 @@ import protocol.json.ConfigJson;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * Created by hp on 14-12-15.
@@ -50,7 +46,7 @@ public class ParserConf {
     public int heartsec = 5 * 60;
     public int timeInterval = 1;
     public int reInterval = 3;//retry 3 seconds to retry and reconnect
-    public int retrys = 10;
+    public int retrys = 3;
     public int conUnit = 1024;//1024 bytes
     public int fetchKb = 1024;//1024 Kb
     public int requestSize = 1 * fetchKb * conUnit;//1 * fetchKb * conUnit;// 1 MB  (fetch size)
@@ -63,6 +59,7 @@ public class ParserConf {
     public static Map<String, String> disTopic = new HashMap<String, String>();
     public static Map<String, String> disKey = new HashMap<String, String>();
     public static Map<String, String> disType = new HashMap<String, String>();
+    public Map<String, Set<String>> disSenses = new HashMap<>();
     //avro
     public String cusTime = "dmlts";
     public String cusIp = "ip";
@@ -77,6 +74,11 @@ public class ParserConf {
     public String phKaTopic = "test1";
     public int phKaPartition = 0;
     public String CLASS_PREFIX = "classpath:";
+    //constants
+    public static final int FETCH_CONTINUS_ZERO = 50;
+    public static final long SLEEP_INTERNAL = 3000;
+    public static final int PERSIST_CONTINUS_ZERO = 50;
+    public static final int CP_RETRY_COUNT = 3;
 
     public void initConfLocal() {
         brokerSeeds.add("127.0.0.1");
@@ -220,6 +222,15 @@ public class ParserConf {
                     if (sourceType != null) disType.put(mapkey, sourceType);
                     String topic = jdata.getString("topic");
                     if (topic != null) disTopic.put(mapkey, topic);
+                    if(jdata.containsKey("sensitive")) {//load sensitive config
+                        String senseStr = jdata.getString("sensitive");
+                        String[] senseArr = StringUtils.split(senseStr, ",");
+                        Set<String> valueSet = new HashSet<>();
+                        for(String value : senseArr) {
+                            valueSet.add(value);
+                        }
+                        disSenses.put(mapkey, valueSet);//put into the collection
+                    }
                 }
             }
             //get mid configuration
@@ -234,5 +245,6 @@ public class ParserConf {
         disTopic.clear();
         disKey.clear();
         disType.clear();
+        disSenses.clear();
     }
 }
