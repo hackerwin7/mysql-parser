@@ -39,6 +39,7 @@ public class KafkaSender {
         prop.put("key.serializer.class", conf.keySerializer);
         prop.put("partitioner.class", conf.partitioner);
         prop.put("request.required.acks", conf.acks);
+        prop.put("compression.codec", conf.compression);
         ProducerConfig pConfig = new ProducerConfig(prop);
         producer = new Producer<String, byte[]>(pConfig);
     }

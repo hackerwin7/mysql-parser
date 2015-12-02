@@ -25,6 +25,7 @@ public class ParserConf {
     public static String serializer = "kafka.serializer.DefaultEncoder";//default is byte[]
     public static String keySerializer = "kafka.serializer.StringEncoder";
     public static String partitioner = "kafka.producer.DefaultPartitioner";
+    public        String kafkaCompression = "snappy";
     public static String acks = "-1";
     public static String topic = "test";//queue topic
     public static String senderTopic = "test2";
@@ -42,11 +43,11 @@ public class ParserConf {
     //parser conf <database.table, topic> database.table could be a regex
     public int batchsize = 10000;
     public int queuesize = 20000;
-    public int minsec = 60;
-    public int heartsec = 5 * 60;
+    public int minsec = 1 * 60;
+    public int heartsec = 1 * 60;
     public int timeInterval = 1;
     public int reInterval = 3;//retry 3 seconds to retry and reconnect
-    public int retrys = 3;
+    public int retrys = 2;// 0 1 2, 3 times retry for zk
     public int conUnit = 1024;//1024 bytes
     public int fetchKb = 1024;//1024 Kb
     public int requestSize = 1 * fetchKb * conUnit;//1 * fetchKb * conUnit;// 1 MB  (fetch size)
@@ -79,6 +80,10 @@ public class ParserConf {
     public static final long SLEEP_INTERNAL = 3000;
     public static final int PERSIST_CONTINUS_ZERO = 50;
     public static final int CP_RETRY_COUNT = 3;
+    public static final long HEART_BEAT_TIMER_INTERVAL = 60 * 1000;//60s
+    public static final long CONFIRM_TIMER_INTERVAL = 60 * 1000;
+    public static final long HEART_BEAT_DELAY_START = 60 * 1000;
+    public static final long CONFIRM_DELAY_START = 10 * 1000;//after 10 seconds, start the confirm timer task
 
     public void initConfLocal() {
         brokerSeeds.add("127.0.0.1");

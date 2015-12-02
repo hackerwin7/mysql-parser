@@ -16,24 +16,25 @@ public class KafkaConf {
 
     private static Logger logger = LoggerFactory.getLogger(KafkaConf.class);
 
-    public static String brokerList = "localhost:9092";//"12:9092,13.9092,14:9092"
-    public static int port = 9092;
-    public static String zk = "localhost:2181";
-    public static String serializer = "kafka.serializer.DefaultEncoder";//default is byte[]
-    public static String keySerializer = "kafka.serializer.StringEncoder";//default is message's byte[]
-    public static String partitioner = "kafka.producer.DefaultPartitioner";
-    public static String acks = "1";
-    public static String sendBufferSize = String.valueOf(1024 * 1024);//1MB
-    public static String topic;//queue topic
-    public static int partition = 0;
-    public static List<String> topics = new ArrayList<String>();//distribute the multiple topic
-    public static List<String> brokerSeeds = new ArrayList<String>();//"12,13,14"
-    public static List<Integer> portList = new ArrayList<Integer>();//9092 9093 9094
-    public static int readBufferSize = 1 * 1024 * 1024;//1 MB
-    public static String clientName = "cc456687IUGHG";
+    public String brokerList = "localhost:9092";//"12:9092,13.9092,14:9092"
+    public int port = 9092;
+    public String zk = "localhost:2181";
+    public String serializer = "kafka.serializer.DefaultEncoder";//default is byte[]
+    public String keySerializer = "kafka.serializer.StringEncoder";//default is message's byte[]
+    public String partitioner = "kafka.producer.DefaultPartitioner";
+    public String compression = "";
+    public String acks = "1";
+    public String sendBufferSize = String.valueOf(1024 * 1024);//1MB
+    public String topic;//queue topic
+    public int partition = 0;
+    public List<String> topics = new ArrayList<String>();//distribute the multiple topic
+    public List<String> brokerSeeds = new ArrayList<String>();//"12,13,14"
+    public List<Integer> portList = new ArrayList<Integer>();//9092 9093 9094
+    public int readBufferSize = 1 * 1024 * 1024;//1 MB
+    public String clientName = "cc456687IUGHG";
 
     //load the zkPos to find the bokerList and port zkPos : 172.17.36.60:2181/kafka
-    public static void loadZk(String zkPos) throws Exception {
+    public void loadZk(String zkPos) throws Exception {
         logger.info("parser load the string : " + zkPos);
         if(zkPos == null) throw new Exception("zk path is null");
         String[] ss = zkPos.split("/");

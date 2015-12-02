@@ -156,6 +156,7 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
         kcnf.port = config.kafkaPort;
         kcnf.topic = config.topic;
         kcnf.acks = config.acks;
+        kcnf.compression = config.kafkaCompression;
         msgSender = new KafkaSender(kcnf);
         msgSender.connect();
         //phoenix monitor sender
@@ -297,8 +298,8 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
         //start thread
         fetchSurvival = true;
         fetcher.start();
-        timer.schedule(minter, 1000, config.minsec * 1000);
-        htimer.schedule(hb, 1000, config.heartsec * 1000);
+        timer.schedule(confirm, ParserConf.CONFIRM_DELAY_START, ParserConf.CONFIRM_TIMER_INTERVAL);
+        htimer.schedule(hb, ParserConf.HEART_BEAT_DELAY_START, ParserConf.HEART_BEAT_TIMER_INTERVAL);
         //ip monitor
         //send monitor
         final String localIp = InetAddress.getLocalHost().getHostAddress();
@@ -759,22 +760,11 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
                 logger.info("=================================> check assembly heartbeats......");
 
                 //run function heart beat information
-                logger.info("--------> globalFetchThread :" + globalFetchThread);
-                logger.info("--------> msgQueue size :" + msgQueue.size());
-                logger.info("--------> fetch thread alive :" + fetchSurvival);
+                logger.info("--------> globalFetchThread : " + globalFetchThread);
+                logger.info("--------> msgQueue size : " + msgQueue.size());
+                logger.info("--------> fetch thread status : " + fetcher.getState());
+                logger.info("--------> fetch thread alive var symbol : " + fetchSurvival);
 
-                //check kafka producer connection
-                if (!msgSender.isConnected()) {
-                    logger.info("kafka producer connection loss, reload the job ......");
-                    globalFetchThread = 1;
-                    return;
-                }
-                //check zookeeper connection
-                if (!zk.isConnected()) {
-                    logger.info("zookeeper connection loss, reload the job ......");
-                    globalFetchThread = 1;
-                    return;
-                }
                 //check fetch thread survival
                 if (!fetchSurvival) {
                     logger.info("fetch thread had been dead, reload the hob ......");
