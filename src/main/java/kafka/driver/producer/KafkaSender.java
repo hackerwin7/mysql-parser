@@ -25,8 +25,8 @@ public class KafkaSender {
 
     private KafkaConf conf;
     private Producer<String, byte[]> producer;
-    private int retrys = 10;
-    private int reconns = 5;
+    private int retrys = ParserConf.KAFKA_RECONN_COUNT;
+    private int reconns = ParserConf.KAFKA_RETRY_COUNT;
 
     public KafkaSender(KafkaConf cf) {
         conf = cf;
@@ -107,7 +107,7 @@ public class KafkaSender {
                 producer.send(keyMsgs);
                 isAck = true;
             } catch (Exception e) {
-                logger.error("retrying sending... Exception:" + e.getMessage());
+                logger.error("retrying sending... Exception:" + e.getMessage(), e);
                 delay(3);
             }
         }
@@ -144,7 +144,7 @@ public class KafkaSender {
                 } catch (Exception e1) {
                     e1.printStackTrace();
                 }
-                logger.error("retrying sending... Exception:" + e.getMessage());
+                logger.error("retrying sending... Exception:" + e.getMessage(), e);
                 delay(3);
             }
         }
@@ -170,7 +170,7 @@ public class KafkaSender {
                 producer.send(keyMsg);
                 isAck = true;
             } catch (Exception e) {
-                logger.error("retrying sending... Exception:" + e.getMessage());
+                logger.error("retrying sending... Exception:" + e.getMessage(), e);
                 delay(3);
             }
         }
@@ -207,7 +207,7 @@ public class KafkaSender {
                 } catch (Exception e1) {
                     e1.printStackTrace();
                 }
-                logger.error("retrying sending... Exception:" + e.getMessage());
+                logger.error("retrying sending... Exception:" + e.getMessage(), e);
                 delay(3);
             }
         }

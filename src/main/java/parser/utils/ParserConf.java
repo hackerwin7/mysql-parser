@@ -3,7 +3,7 @@ package parser.utils;
 import kafka.utils.KafkaConf;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import protocol.json.ConfigJson;
@@ -84,6 +84,12 @@ public class ParserConf {
     public static final long CONFIRM_TIMER_INTERVAL = 60 * 1000;
     public static final long HEART_BEAT_DELAY_START = 60 * 1000;
     public static final long CONFIRM_DELAY_START = 10 * 1000;//after 10 seconds, start the confirm timer task
+    public static final long KAFKA_SEND_DEFAULT_BATCH_BYTES = 1024 * 1024;
+    public static final long KAFKA_SEND_COMPRESS_BATCH_BYTES = 1000 * 1024;
+    public static final int KAFKA_RECONN_COUNT = 1;
+    public static final int KAFKA_RETRY_COUNT = 3;
+    //kafka batch send
+    public long sendBatchBytes = KAFKA_SEND_DEFAULT_BATCH_BYTES;
 
     public void initConfLocal() {
         brokerSeeds.add("127.0.0.1");
@@ -243,6 +249,8 @@ public class ParserConf {
                 mid = Long.valueOf(data.getString("mid"));
             }
         }
+        //if compress set batch size
+        sendBatchBytes = KAFKA_SEND_COMPRESS_BATCH_BYTES;
     }
 
     public void clear() {

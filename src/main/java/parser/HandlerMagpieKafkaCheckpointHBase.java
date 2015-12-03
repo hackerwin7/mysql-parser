@@ -48,10 +48,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -814,7 +811,7 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
                 }
             }
             if(count >= ParserConf.CP_RETRY_COUNT) {
-                logger.error("confirm checkpoint failed by " + count + " times, reloading the job......");
+                logger.error("confirm checkpoint failed after " + count + " times, reloading the job......");
                 globalFetchThread = 1;
             }
         }
@@ -879,10 +876,10 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
 //            globalBatchId = batchId;
 //            globalInBatchId = inId;
 //            globalUId = uId;
-            if(messageList.size() >= config.batchsize || (monitor.batchSize / config.mbUnit) >= config.spacesize) break;
+            if(monitor.batchSize >= config.sendBatchBytes || messageList.size() >= config.batchsize) break;
         }
         //distribute data to multiple topic kafka, per time must confirm the position
-        if((messageList.size() >= config.batchsize || (monitor.batchSize / config.mbUnit) >= config.spacesize) || (System.currentTimeMillis() - startTime) > config.timeInterval * 1000) {
+        if((monitor.batchSize >= config.sendBatchBytes || messageList.size() >= config.batchsize) || (System.currentTimeMillis() - startTime) > config.timeInterval * 1000) {
             if(entryList.size() > 0){
                 monitor.persisNum = messageList.size();
                 last = entryList.get(entryList.size()-1);//get the last one,may be enter the time interval and size = 0
@@ -1330,24 +1327,33 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
                             if(isFilteredCol(dt, column.getName())) {
                                 continue;
                             }
-                            //if (column.getIsKey()) {
-                            if(column.getIsNull()) {
-                                currentCols.put(column.getName(), null);
-                            } else {
-                                currentCols.put(column.getName(), column.getValue());
-                            }
-                            for (String k : kk) {
-                                if (k.equals(column.getName())) {
-                                    keys += column.getValue() + div;
-                                    break;
-                                }
-                            }
-                            //}
+                            //add update value to cur
                             if (column.getUpdated()) {
                                 if(column.getIsNull()) {
                                     currentCols.put(column.getName(), null);
                                 } else {
                                     currentCols.put(column.getName(), column.getValue());
+                                }
+                            }
+                            //add physical key
+                            if(column.getIsKey()) {
+                                if(column.getIsNull()) {
+                                    currentCols.put(column.getName(), null);
+                                } else {
+                                    currentCols.put(column.getName(), column.getValue());
+                                }
+                            }
+                            //set business key to monitor map and add to cur
+                            for (String k : kk) {
+                                if (k.equals(column.getName())) {
+                                    keys += column.getValue() + div;
+                                    //add to cur
+                                    if(column.getIsNull()) {
+                                        currentCols.put(column.getName(), null);
+                                    } else {
+                                        currentCols.put(column.getName(), column.getValue());
+                                    }
+                                    break;
                                 }
                             }
                         }
@@ -1533,8 +1539,8 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
             fetcher.isFetch = false;//stop the thread
         if(fetcher.consumer != null) fetcher.consumer.close();
             fetcher.shutdown();//stop the fetcher's timer task
-        if(minter != null)
-            minter.cancel();
+        if(confirm != null)
+            confirm.cancel();
         if(hb != null)
             hb.cancel();
         if(htimer != null)
@@ -1545,7 +1551,8 @@ public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
             zk.close();
         if(config != null)
             config.clear();
-        throw new Exception("switch the new node to start the job ......");
+        logger.info("system exiting......");
+        System.exit(0);
     }
 
     class RetryTimesOutException extends Exception {
