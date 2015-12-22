@@ -22,7 +22,7 @@ public class KafkaConf {
     public String serializer = "kafka.serializer.DefaultEncoder";//default is byte[]
     public String keySerializer = "kafka.serializer.StringEncoder";//default is message's byte[]
     public String partitioner = "kafka.producer.DefaultPartitioner";
-    public String compression = "";
+    public String compression = "none";
     public String acks = "1";
     public String sendBufferSize = String.valueOf(1024 * 1024);//1MB
     public String topic;//queue topic
