@@ -1,11 +1,12 @@
-import com.github.hackerwin7.mysql.parser.protocol.json.ConfigJson;
-import net.sf.json.JSONObject;
+package com.github.hackerwin7.mysql.parser.protocol.json;
+
 import com.github.hackerwin7.mysql.parser.parser.utils.ParserConfig;
+import net.sf.json.JSONObject;
 
 /**
  * Created by hp on 14-11-14.
  */
-public class ParserJsonTest {
+public class LoadURLJson {
 
     public static void main(String[] args) {
         ParserConfig configer = new ParserConfig();
@@ -15,8 +16,8 @@ public class ParserJsonTest {
             JSONObject jContent = jRoot.getJSONObject("info").getJSONObject("content");
             configer.setHbaseRootDir(jContent.getString("HbaseRootDir"));
             configer.setHbaseDistributed(jContent.getString("HbaseDistributed"));
-            configer.setHbaseZkQuorum(jContent.getString("HbaseZKQuorum"));
-            configer.setHbaseZkPort(jContent.getString("HbaseZKPort"));
+            configer.setHbaseZkQuorum(jContent.getString("HbaseZkQuorum"));
+            configer.setHbaseZkPort(jContent.getString("HbaseZkPort"));
             configer.setDfsSocketTimeout(jContent.getString("DfsSocketTimeout"));
         }
 

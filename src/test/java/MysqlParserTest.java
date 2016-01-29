@@ -1,4 +1,4 @@
-import parser.MysqlParser;
+import com.github.hackerwin7.mysql.parser.parser.MysqlParser;
 
 import java.io.IOException;
 

@@ -5,7 +5,7 @@ import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
-import protocol.avro.EventEntryAvro;
+import com.github.hackerwin7.mysql.parser.protocol.avro.EventEntryAvro;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

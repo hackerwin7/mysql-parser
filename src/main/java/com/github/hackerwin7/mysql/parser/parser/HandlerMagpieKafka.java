@@ -1,8 +1,19 @@
-package com.jd.bdp.mysql.parser;
+package com.github.hackerwin7.mysql.parser.parser;
 
+import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
+import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaConf;
+import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaMetaMsg;
+import com.github.hackerwin7.mysql.parser.monitor.JrdwMonitorVo;
+import com.github.hackerwin7.mysql.parser.monitor.ParserMonitor;
+import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
+import com.github.hackerwin7.mysql.parser.parser.utils.KafkaPosition;
+import com.github.hackerwin7.mysql.parser.parser.utils.ParserConf;
+import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
+import com.github.hackerwin7.mysql.parser.protocol.protobuf.CanalEntry;
+import com.github.hackerwin7.mysql.parser.zk.client.ZkExecutor;
+import com.github.hackerwin7.mysql.parser.zk.utils.ZkConf;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.jd.bdp.magpie.MagpieExecutor;
-import com.jd.bdp.monitors.commons.util.CheckpointUtil;
 import com.jd.bdp.monitors.constants.ToKafkaMonitorType;
 import kafka.api.FetchRequest;
 import kafka.api.FetchRequestBuilder;
@@ -10,46 +21,51 @@ import kafka.api.PartitionOffsetRequestInfo;
 import kafka.cluster.Broker;
 import kafka.common.ErrorMapping;
 import kafka.common.TopicAndPartition;
-import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
-import kafka.javaapi.*;
+import kafka.javaapi.FetchResponse;
+import kafka.javaapi.OffsetRequest;
+import kafka.javaapi.OffsetResponse;
+import kafka.javaapi.PartitionMetadata;
+import kafka.javaapi.TopicMetadata;
+import kafka.javaapi.TopicMetadataRequest;
+import kafka.javaapi.TopicMetadataResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.message.MessageAndOffset;
 import kafka.producer.KeyedMessage;
-import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaConf;
-import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaMetaMsg;
-import com.github.hackerwin7.mysql.parser.monitor.JrdwMonitorVo;
-import com.github.hackerwin7.mysql.parser.monitor.ParserMonitor;
-import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
-import org.apache.avro.io.*;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
-import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.github.hackerwin7.mysql.parser.parser.utils.KafkaPosition;
-import com.github.hackerwin7.mysql.parser.parser.utils.ParserConf;
 import com.github.hackerwin7.mysql.parser.protocol.avro.EventEntryAvro;
-import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
-import com.github.hackerwin7.mysql.parser.protocol.protobuf.CanalEntry;
-import com.github.hackerwin7.mysql.parser.zk.client.ZkExecutor;
-import com.github.hackerwin7.mysql.parser.zk.utils.ZkConf;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Created by hp on 14-12-15.
  */
-public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
+public class HandlerMagpieKafka implements MagpieExecutor {
     //logger
-    private Logger logger = LoggerFactory.getLogger(HandlerMagpieKafkaCheckpointZk.class);
-    //constants
-    public static final String LOG_HEAD_LINE = "===================================================> ";
+    private Logger logger = LoggerFactory.getLogger(HandlerMagpieKafka.class);
     //final static var
     private static final long LONGMAX = 9223372036854775807L;
     //config
@@ -80,10 +96,10 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
     private long startTime;
     //thread
     private Fetcher fetcher;
-    private Timer timer;
-    private ConfirmCP confirm;
-    private Timer htimer;
-    private HeartBeat hb;
+    Timer timer;
+    Minuter minter;
+    Timer htimer;
+    HeartBeat hb;
     //monitor
     private ParserMonitor monitor;
     //global var
@@ -95,10 +111,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
     private boolean fetchSurvival = true;
     //thread finish load or run one times
     private boolean isFetchRunning = false;
-    //checkpoint util
-    private CheckpointUtil cpUtil = null;
-    //every minute save to the atomic cp
-    private String ConCP = null;
     //debug var
 
 
@@ -136,7 +148,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         kcnf.port = config.kafkaPort;
         kcnf.topic = config.topic;
         kcnf.acks = config.acks;
-        kcnf.compression = config.kafkaCompression;
         msgSender = new KafkaSender(kcnf);
         msgSender.connect();
         //phoenix monitor sender
@@ -186,7 +197,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 delay(3);
             }
         }
-        initZk();
+        //initZk();
         //queue
         msgQueue = new LinkedBlockingQueue<KafkaMetaMsg>(config.queuesize);
         //batchid inId
@@ -210,7 +221,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         fetchCnf.clientName = config.clientName;
         fetcher = new Fetcher(fetchCnf);
         timer = new Timer();
-        confirm = new ConfirmCP();
+        minter = new Minuter();
         htimer = new Timer();
         hb = new HeartBeat();
         //monitor
@@ -219,7 +230,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         entryList = new ArrayList<CanalEntry.Entry>();
         messageList = new ArrayList<KeyedMessage<String, byte[]>>();
         isFetchRunning = false;
-        cpUtil = new CheckpointUtil();
     }
 
     private void initZk() throws Exception {
@@ -278,8 +288,8 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         //start thread
         fetchSurvival = true;
         fetcher.start();
-        timer.schedule(confirm, ParserConf.CONFIRM_DELAY_START, ParserConf.CONFIRM_TIMER_INTERVAL);
-        htimer.schedule(hb, ParserConf.HEART_BEAT_DELAY_START, ParserConf.HEART_BEAT_TIMER_INTERVAL);
+        timer.schedule(minter, 1000, config.minsec * 1000);
+        htimer.schedule(hb, 1000, config.heartsec * 1000);
         //ip monitor
         //send monitor
         final String localIp = InetAddress.getLocalHost().getHostAddress();
@@ -494,28 +504,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             throw new Exception("Unable to find new leader after Broker failure. Exiting");
         }
 
-        private KafkaPosition findCheckpointHBase() throws Exception {
-            KafkaPosition position = null;
-            String value = cpUtil.readCheckpoint(jobId, CheckpointUtil.CURRENT_CHECKPOINT);
-            if(value == null || value.equals("")) {
-                throw new Exception("fetch checkpoint is null, reload the job " + jobId);
-            }
-            String vs[] = value.split(":");
-            if(vs.length != 6) {
-                throw new Exception("fetch checkpoint's format is error, checkpoint = " + value + ", reload the job " + jobId);
-            }
-            position = new KafkaPosition();
-            position.topic = vs[0];
-            position.partition = Integer.valueOf(vs[1]);
-            position.offset = Long.valueOf(vs[2]);
-            position.batchId = Long.valueOf(vs[3]);
-            position.inId = Long.valueOf(vs[4]);
-            position.uId = Long.valueOf(vs[5]);
-            uId = position.uId;//priority: zk position of mid > config of mid
-            confirmOffset = position.offset;
-            return position;
-        }
-
         private KafkaPosition findPosFromZk() {
             KafkaPosition returnPos = null;
             try {
@@ -571,7 +559,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             String clientName = conf.clientName;
             consumer = new SimpleConsumer(leadBroker, leadPort, 100000, 64 * 1024, clientName);
             //load pos
-            //KafkaPosition pos = findCheckpointHBase();
             KafkaPosition pos = findPosFromZk();
             if (pos == null) {//find position failed......
                 globalFetchThread = 1;
@@ -595,7 +582,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             int numErr = 0;
             int counter = 0;
             fetchMonitor.fetchStart = System.currentTimeMillis();
-            logger.info("init parser fetcher offset: "+readOffset+" ,batchId: "+batchId+" ,inId: "+inId+", uid: " + uId);
+            logger.info("init parser fetcher ================> offset:"+readOffset+",batchId:"+batchId+",inId:"+inId);
             timer.schedule(timerMonitor, 1000, config.monitorsec * 1000);//per minute timer task
             isFetchRunning = true;
             while (isFetch) {
@@ -610,7 +597,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 if (rep.hasError()) {
                     numErr++;
                     short code = rep.errorCode(conf.topic, conf.partition);
-                    logger.error("Error fetching data from the Broker:" + leadBroker + " Reason: " + code);
+                    logger.warn("Error fetching data from the Broker:" + leadBroker + " Reason: " + code);
                     if (numErr >= 5) {
                         logger.error("5 errors occurred existing the fetching");
                         globalFetchThread = 1;
@@ -640,7 +627,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 }
                 numErr = 0;
                 long numRead = 0;
-                int continuousRead = 0;
                 for (MessageAndOffset messageAndOffset : rep.messageSet(conf.topic, conf.partition)) {
                     long currentOffset = messageAndOffset.offset();
                     if (currentOffset < readOffset) {
@@ -668,13 +654,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 }
                 if (numRead == 0) {
                     delay(1);//block
-                    continuousRead ++;
-                    if(continuousRead >= ParserConf.FETCH_CONTINUS_ZERO) {
-                        logger.info("====================> simple consumer fetch 0 messages");
-                        logger.info("-----> continuous 0 batch messages for " + continuousRead + " batches");
-                        Thread.sleep(ParserConf.SLEEP_INTERNAL);
-                        continuousRead = 0;
-                    }
                 }
                 if (counter > 10000) {
                     fetchMonitor.fetchEnd = System.currentTimeMillis();
@@ -685,7 +664,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                     fetchMonitor.clear();
                     counter = 0;
                     fetchMonitor.fetchStart = System.currentTimeMillis();
-                    continuousRead = 0;
                 }
             }
             logger.info("closing the simple consumer......");
@@ -699,8 +677,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         public void run() {
             try {
                 dump();
-            } catch (Throwable e) { // OOM exception will catch it.
-                logger.error("fetcher error : " + e.getMessage(), e);
+            } catch (Exception e) {
                 //send monitor
                 final String exmsg = e.getMessage();
                 Thread sendMonitor = new Thread(new Runnable() {
@@ -725,9 +702,120 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             fetchSurvival = false;
         }
 
+        public boolean isConnected() {
+            SimpleConsumer hconsumer = null;
+            for (int i = 0; i <= conf.brokerSeeds.size() - 1; i++) {
+                try {
+                    hconsumer = new SimpleConsumer(conf.brokerSeeds.get(i), conf.portList.get(i), 100000, 64 * 1024, "heartBeat");
+                    List<String> topics = Collections.singletonList(conf.topic);
+                    TopicMetadataRequest req = new TopicMetadataRequest(topics);
+                    TopicMetadataResponse rep = hconsumer.send(req);
+                } catch (Exception e) {
+                    logger.error("heart beat , simple consumer error!! ," + e.getMessage(), e);
+                    if(hconsumer != null) {
+                        hconsumer.close();
+                        hconsumer = null;
+                    }
+                    return false;
+                } finally {
+                    if(hconsumer != null) {
+                        hconsumer.close();
+                        hconsumer = null;
+                    }
+                }
+            }
+            return true;
+        }
+
         public void shutdown() {
             timerMonitor.cancel();
             timer.cancel();
+        }
+    }
+
+    class Minuter extends TimerTask {
+        private Logger logger = LoggerFactory.getLogger(Minuter.class);
+
+        public void run() {
+            Calendar cal = Calendar.getInstance();
+            DateFormat sdf = new SimpleDateFormat("HH:mm");
+            DateFormat sdfDate = new SimpleDateFormat("yyyy-MM-dd");
+            String time = sdf.format(cal.getTime());
+            String date = sdfDate.format(cal.getTime());
+            String[] tt = time.split(":");
+            String hour = tt[0];
+            String xidValue = config.topic+":"+config.partition+":"+globalOffset+":"+globalBatchId+":"+globalInBatchId+":"+globalUId;
+            try {
+//                if(!zk.exists(config.minutePath+"/"+date)) {
+//                    zk.create(config.minutePath+"/"+date,date);
+//                }
+//                if(!zk.exists(config.minutePath+"/"+date+"/"+hour)) {
+//                    zk.create(config.minutePath+"/"+date+"/"+hour, hour);
+//                }
+//                if(!zk.exists(config.minutePath+"/"+date+"/"+hour+"/"+time)) {
+//                    zk.create(config.minutePath + "/" + date + "/" + hour + "/" + time, time);
+//                }
+//                if(!zk.exists(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId)) {
+//                    zk.create(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId, xidValue);
+//                } else {
+//                    zk.set(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId, xidValue);
+//                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                logger.error(e.getMessage());
+                boolean isZk = false;
+                int retryZk = 0;
+                while (!isZk) {// retry
+                    if(retryZk >= config.retrys) {
+                        globalFetchThread = 1;
+                        return;
+                    }
+                    retryZk++;
+                    try {
+                        if(!zk.exists(config.minutePath+"/"+date)) {
+                            zk.create(config.minutePath+"/"+date,date);
+                        }
+                        if(!zk.exists(config.minutePath+"/"+date+"/"+hour)) {
+                            zk.create(config.minutePath+"/"+date+"/"+hour, hour);
+                        }
+                        if(!zk.exists(config.minutePath+"/"+date+"/"+hour+"/"+time)) {
+                            zk.create(config.minutePath + "/" + date + "/" + hour + "/" + time, time);
+                        }
+                        if(!zk.exists(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId)) {
+                            zk.create(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId, xidValue);
+                        } else {
+                            zk.set(config.minutePath+"/"+date+"/"+hour+"/"+time+"/"+jobId, xidValue);
+                        }
+                        isZk = true;
+                    } catch (Exception e1) {
+                        //send monitor
+                        final String exmsg = e.getMessage();
+                        Thread sendMonitor = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    ParserMonitor exMonitor = new ParserMonitor();
+                                    exMonitor.exMsg = exmsg;
+                                    JrdwMonitorVo jmv = exMonitor.toJrdwMonitorOnline(JDMysqlParserMonitorType.EXCEPTION_MONITOR, jobId);
+                                    String jsonStr = JSONConvert.JrdwMonitorVoToJson(jmv).toString();
+                                    KeyedMessage<String, byte[]> km = new KeyedMessage<String, byte[]>(config.phKaTopic, null, jsonStr.getBytes("UTF-8"));
+                                    phMonitorSender.sendKeyMsg(km);
+                                } catch (Exception e) {
+                                    logger.info(e.getMessage(), e);
+                                }
+                            }
+                        });
+                        sendMonitor.start();
+                        logger.error("retrying...... Exception:" +e1.getMessage(), e1);
+                        delay(3);
+                    }
+                }
+            }
+            logger.info("===================================> minute thread:");
+            logger.info("---> topic is " + config.topic +
+                    ",partition is :" + config.partition + ",offset is :" + globalOffset + "; batch id is :" + globalBatchId +
+                    ",in batch id is :" + globalInBatchId + "" +
+                    ",unique id is :" + globalUId);
         }
     }
 
@@ -735,81 +823,51 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         private Logger logger = LoggerFactory.getLogger(HeartBeat.class);
 
         public void run() {
+            logger.info("=================================> check assembly heartbeats......");
 
-            try {
+            //run function heart beat information
+            logger.info("--------> globalFetchThread :" + globalFetchThread);
+            logger.info("--------> msgQueue size :" + msgQueue.size());
+            logger.info("--------> fetch thread alive :" + fetchSurvival);
 
-                logger.info("=================================> check assembly heartbeats......");
-
-                //run function heart beat information
-                logger.info("--------> globalFetchThread : " + globalFetchThread);
-                logger.info("--------> msgQueue size : " + msgQueue.size());
-                logger.info("--------> fetch thread status : " + fetcher.getState());
-                logger.info("--------> fetch thread alive var symbol : " + fetchSurvival);
-
-                //check fetch thread survival
-                if (!fetchSurvival) {
-                    logger.info("fetch thread had been dead, reload the hob ......");
-                    globalFetchThread = 1;
-                    return;
-                }
-
-                /*check the thread dead*/
-                if (!fetcher.isAlive()) {
-                    logger.info("fetcher thread is not alive, now reload it to set the global fetcher thread  = 1 ");
-                    globalFetchThread = 1;
-                }
-            } catch (Throwable e) {
-                logger.error(e.getMessage(), e);
-                logger.info("heart beat lost, reloading the job......");
+            //check kafka producer connection
+            if(!msgSender.isConnected()) {
+                logger.info("kafka producer connection loss, reload the job ......");
                 globalFetchThread = 1;
+                return;
+            }
+            //check zookeeper connection
+            if(!zk.isConnected()) {
+                logger.info("zookeeper connection loss, reload the job ......");
+                globalFetchThread = 1;
+                return;
+            }
+            //check kafka consumer connection
+            if(!fetcher.isConnected()) {
+                logger.info("kafka consumer connection loss, reload the job ......");
+                globalFetchThread = 1;
+                return;
+            }
+            //check fetch thread survival
+            if(!fetchSurvival) {
+                logger.info("fetch thread had been dead, reload the hob ......");
+                globalFetchThread = 1;
+                return;
             }
         }
     }
 
-    class ConfirmCP extends TimerTask {
-
-        /*logger*/
-        private Logger logger = LoggerFactory.getLogger(ConfirmCP.class);
-
-        /**
-         * confirm the checkpoint in a fixed time internal
-         */
-        @Override
-        public void run() {
-            /*logger*/
-            logger.info(LOG_HEAD_LINE + "confirm checkpoint every minute:");
-            /*confirm the checkpoint*/
-            int count = 0;
-            while (count < ParserConf.CP_RETRY_COUNT) {
-                try {
-                    if (!StringUtils.isBlank(ConCP)) {
-                        //cpUtil.writeCp(jobId, ConCP);
-                        writeCpZk(jobId, ConCP);
-                        logger.info("----------> confirm checkpoint = " + ConCP);
-                    } else {
-                        logger.info("----------> nothing to confirm checkpoint, checkpoint is null");
-                    }
-                    break;//if send success
-                } catch (Throwable e) {
-                    logger.error("confirm minuter is dead, error = " + e.getMessage(), e);
-                    count++;
-                }
-            }
-            if(count >= ParserConf.CP_RETRY_COUNT) {
-                logger.error("confirm checkpoint failed after " + count + " times, reloading the job......");
-                globalFetchThread = 1;
-            }
+    private boolean isBehind(CanalEntry.Entry pre, CanalEntry.Entry last) {
+        if(pre.getBatchId() > last.getBatchId()) {
+            return false;
+        } else if(pre.getBatchId() < last.getBatchId()) {
+            return true;
+        } else {
+            if(last.getInId() > pre.getInId()) return true;
+            else return false;
         }
     }
 
-    private void writeCpZk(String jobId, String cp) throws Exception {
-        String path = config.persisPath + "/" + jobId;
-        String value = cp;
-        if(!zk.exists(path))
-            zk.create(path, value);
-        else
-            zk.set(path, value);
-    }
 
     //num / size / yanshi / send kafka time | per batch
     public void run() throws Exception {
@@ -832,9 +890,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             delay(1);
             return;
         }
-
-        //while heart beat
-        int continuousZero = 0;
 
         //take the data from the queue
         while (!msgQueue.isEmpty()) {
@@ -870,10 +925,10 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
 //            globalBatchId = batchId;
 //            globalInBatchId = inId;
 //            globalUId = uId;
-            if(monitor.batchSize >= config.sendBatchBytes || messageList.size() >= config.batchsize) break;
+            if(messageList.size() >= config.batchsize || (monitor.batchSize / config.mbUnit) >= config.spacesize) break;
         }
         //distribute data to multiple topic kafka, per time must confirm the position
-        if((monitor.batchSize >= config.sendBatchBytes || messageList.size() >= config.batchsize) || (System.currentTimeMillis() - startTime) > config.timeInterval * 1000) {
+        if((messageList.size() >= config.batchsize || (monitor.batchSize / config.mbUnit) >= config.spacesize) || (System.currentTimeMillis() - startTime) > config.timeInterval * 1000) {
             if(entryList.size() > 0){
                 monitor.persisNum = messageList.size();
                 last = entryList.get(entryList.size()-1);//get the last one,may be enter the time interval and size = 0
@@ -885,19 +940,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 globalFetchThread = 1;
                 return;
             }
-            if(messageList.size() > 0) {
-                confirm2Str();
-                continuousZero = 0;
-            } else {
-                continuousZero++;
-                if(continuousZero >= ParserConf.PERSIST_CONTINUS_ZERO) {
-                    logger.info("============> continuous persist running 0 batch :");
-                    logger.info("-----> 0 batch count = " + continuousZero);
-                    logger.info("-----> sleeping " + ParserConf.SLEEP_INTERNAL);
-                    Thread.sleep(ParserConf.SLEEP_INTERNAL);
-                    continuousZero = 0;//reset
-                }
-            }
+            confirmPos();
             //per minute persistence the position which must be run() persisted
             globalOffset = confirmOffset;
             globalBatchId = batchId;
@@ -916,11 +959,10 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             logger.info("---> the number of messages:" + monitor.persisNum + " messages");
             logger.info("---> entry list to bytes (avro) sum size is " + monitor.batchSize / config.mbUnit + " MB");
             logger.info("---> globalFetchThread :" + globalFetchThread);
-            logger.info("---> queue size : " + msgQueue.size());
-            logger.info("---> commit position info (not confirmed):" + " topic is " + config.topic +
+            if(last != null) logInfoEntry(last);
+            logger.info("---> position info:" + " topic is " + config.topic +
                     ",partition is :" + config.partition + ",offset is :" + globalOffset + "; batch id is :" + globalBatchId +
                     ",in batch id is :" + globalInBatchId);
-            if(last != null) logInfoEntry(last);
             //send phoenix monitor and through train monitor
             final ParserMonitor ptMonitor = monitor.cloneDeep();
             //final long commonDelay = System.currentTimeMillis() - last.getHeader().getExecuteTime();//bug the EntryList has been clear, the last maybe null or initial entry
@@ -972,16 +1014,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         }
         monitor.sendEnd = System.currentTimeMillis();
         return flag;
-    }
-
-    private void confirmCheckpointHBase() throws Exception {
-        String value = config.topic+":"+config.partition+":"+ confirmOffset +":"+batchId+":"+inId+":"+uId;
-        cpUtil.writeCp(jobId, value);
-    }
-
-    private void confirm2Str() throws Exception {
-        String value = config.topic+":"+config.partition+":"+ confirmOffset +":"+batchId+":"+inId+":"+uId;
-        ConCP = value;
     }
 
     private void confirmPos() throws Exception {
@@ -1222,7 +1254,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         List<KeyedMessage<String, byte[]>> keyMsgs = new ArrayList<KeyedMessage<String, byte[]>>();
         String div = "\u0001";
         String getKey = config.disKey.get(entry.getHeader().getSchemaName()+"."+entry.getHeader().getTableName());
-        String dt = entry.getHeader().getSchemaName() + "." + entry.getHeader().getTableName();
         String[] kk = null;
         if(getKey != null) kk = getKey.split(",");
         try {
@@ -1252,9 +1283,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         Map<CharSequence, CharSequence> currentCols = new HashMap<CharSequence, CharSequence>();
                         Map<CharSequence, CharSequence> sourceCols = new HashMap<CharSequence, CharSequence>();
                         for (CanalEntry.Column column : columns) {
-                            if(isFilteredCol(dt, column.getName())) {
-                                continue;
-                            }
                             if(column.getIsNull()) {
                                 sourceCols.put(column.getName(), null);
                             } else {
@@ -1268,12 +1296,12 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                                     currentCols.put(column.getName(), column.getValue());
                                 }
                             }
-                            for (String k : kk) {
-                                if (k.equals(column.getName())) {
-                                    keys += column.getValue() + div;
-                                    break;
+                                for (String k : kk) {
+                                    if (k.equals(column.getName())) {
+                                        keys += column.getValue() + div;
+                                        break;
+                                    }
                                 }
-                            }
                             //}
                         }
                         entryAvro.setCur(currentCols);
@@ -1283,21 +1311,18 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         Map<CharSequence, CharSequence> currentCols = new HashMap<CharSequence, CharSequence>();
                         Map<CharSequence, CharSequence> sourceCols = new HashMap<CharSequence, CharSequence>();
                         for (CanalEntry.Column column : columns) {
-                            if(isFilteredCol(dt, column.getName())) {
-                                continue;
-                            }
                             if(column.getIsNull()) {
                                 currentCols.put(column.getName(), null);
                             } else {
                                 currentCols.put(column.getName(), column.getValue());
                             }
                             //if (column.getIsKey()) {
-                            for (String k : kk) {//get the key's  value
-                                if (k.equals(column.getName())) {
-                                    keys += column.getValue() + div;
-                                    break;
+                                for (String k : kk) {//get the key's  value
+                                    if (k.equals(column.getName())) {
+                                        keys += column.getValue() + div;
+                                        break;
+                                    }
                                 }
-                            }
                             //}
                         }
                         entryAvro.setSrc(sourceCols);
@@ -1308,9 +1333,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         Map<CharSequence, CharSequence> sourceCols = new HashMap<CharSequence, CharSequence>();
                         Map<CharSequence, CharSequence> currentCols = new HashMap<CharSequence, CharSequence>();
                         for (CanalEntry.Column column : columnsSource) {
-                            if(isFilteredCol(dt, column.getName())) {
-                                continue;
-                            }
                             if(column.getIsNull()) {
                                 sourceCols.put(column.getName(), null);
                             } else {
@@ -1318,36 +1340,24 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                             }
                         }
                         for (CanalEntry.Column column : columnsCurrent) {
-                            if(isFilteredCol(dt, column.getName())) {
-                                continue;
-                            }
-                            //add update value to cur
+                            //if (column.getIsKey()) {
+                                if(column.getIsNull()) {
+                                    currentCols.put(column.getName(), null);
+                                } else {
+                                    currentCols.put(column.getName(), column.getValue());
+                                }
+                                for (String k : kk) {
+                                    if (k.equals(column.getName())) {
+                                        keys += column.getValue() + div;
+                                        break;
+                                    }
+                                }
+                            //}
                             if (column.getUpdated()) {
                                 if(column.getIsNull()) {
                                     currentCols.put(column.getName(), null);
                                 } else {
                                     currentCols.put(column.getName(), column.getValue());
-                                }
-                            }
-                            //add physical key
-                            if(column.getIsKey()) {
-                                if(column.getIsNull()) {
-                                    currentCols.put(column.getName(), null);
-                                } else {
-                                    currentCols.put(column.getName(), column.getValue());
-                                }
-                            }
-                            //set business key to monitor map and add to cur
-                            for (String k : kk) {
-                                if (k.equals(column.getName())) {
-                                    keys += column.getValue() + div;
-                                    //add to cur
-                                    if(column.getIsNull()) {
-                                        currentCols.put(column.getName(), null);
-                                    } else {
-                                        currentCols.put(column.getName(), column.getValue());
-                                    }
-                                    break;
                                 }
                             }
                         }
@@ -1360,12 +1370,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         entryAvro.setSrc(sourceCols);
                     }
                     //erase the rear "\u0001"
-                    try {
-                        keys = keys.substring(0, keys.lastIndexOf(div));//bug here
-                    } catch (Throwable e) {
-                        logger.error("primary key error!!, db.tb = " + dt);
-                        keys = "";
-                    }
+                    keys = keys.substring(0, keys.lastIndexOf(div));//bug here
                     byte[] value = getBytesFromAvro(entryAvro);
                     monitor.batchSize += value.length;
                     Long rowNum = monitor.topicRows.get(topic);
@@ -1377,8 +1382,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                     uId++;
                 }
             } else {//ddl
-                logger.info("=====================> encounter a ddl : ");
-                logger.info("-----> ddl : " + rowChange.getSql());
 //                EventEntryAvro entryAvro = new EventEntryAvro();
 //                String keys = "ddl" + System.currentTimeMillis();
 //                entryAvro.setMid(uId);
@@ -1408,17 +1411,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             e.printStackTrace();
         }
         return(keyMsgs);
-    }
-
-    private boolean isFilteredCol(String dbtb, String fieldName) {
-        if(config.disSenses.containsKey(dbtb)) {
-            if(config.disSenses.get(dbtb).contains(fieldName))
-                return true;//it is sensitive filed, filter it
-            else
-                return false;
-        } else {
-            return false;
-        }
     }
 
     private byte[] getBytesFromAvro(EventEntryAvro avro) {
@@ -1467,16 +1459,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
         return avro;
     }
 
-    private boolean isBehind(CanalEntry.Entry pre, CanalEntry.Entry last) {
-        if(pre.getBatchId() > last.getBatchId()) {
-            return false;
-        } else if(pre.getBatchId() < last.getBatchId()) {
-            return true;
-        } else {
-            if(last.getInId() > pre.getInId()) return true;
-            else return false;
-        }
-    }
 
     private String getTopic(String macher) {
         return config.disTopic.get(macher);
@@ -1534,24 +1516,16 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
 
     public void close(String id) throws Exception {
         logger.info("closing the job ......");
-        if(fetcher != null)
-            fetcher.isFetch = false;//stop the thread
+        fetcher.isFetch = false;//stop the thread
         if(fetcher.consumer != null) fetcher.consumer.close();
-            fetcher.shutdown();//stop the fetcher's timer task
-        if(confirm != null)
-            confirm.cancel();
-        if(hb != null)
-            hb.cancel();
-        if(htimer != null)
-            htimer.cancel();
-        if(timer != null)
-            timer.cancel();
-        if(zk != null)
-            zk.close();
-        if(config != null)
-            config.clear();
-        logger.info("system exiting......");
-        System.exit(0);
+        fetcher.shutdown();//stop the fetcher's timer task
+        minter.cancel();
+        hb.cancel();
+        htimer.cancel();
+        timer.cancel();
+        zk.close();
+        config.clear();
+        throw new Exception("switch the new node to start the job ......");
     }
 
     class RetryTimesOutException extends Exception {

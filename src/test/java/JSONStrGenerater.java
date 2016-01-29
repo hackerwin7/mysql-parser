@@ -1,6 +1,6 @@
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import protocol.json.ConfigJson;
+import com.github.hackerwin7.mysql.parser.protocol.json.ConfigJson;
 
 /**
  * Created by hp on 6/4/15.

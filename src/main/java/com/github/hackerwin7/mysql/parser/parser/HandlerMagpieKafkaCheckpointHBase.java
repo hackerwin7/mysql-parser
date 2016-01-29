@@ -1,8 +1,11 @@
-package com.jd.bdp.mysql.parser;
+package com.github.hackerwin7.mysql.parser.parser;
 
+import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
+import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.jd.bdp.magpie.MagpieExecutor;
 import com.jd.bdp.monitors.commons.util.CheckpointUtil;
+import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
 import com.jd.bdp.monitors.constants.ToKafkaMonitorType;
 import kafka.api.FetchRequest;
 import kafka.api.FetchRequestBuilder;
@@ -10,8 +13,13 @@ import kafka.api.PartitionOffsetRequestInfo;
 import kafka.cluster.Broker;
 import kafka.common.ErrorMapping;
 import kafka.common.TopicAndPartition;
-import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
-import kafka.javaapi.*;
+import kafka.javaapi.FetchResponse;
+import kafka.javaapi.OffsetRequest;
+import kafka.javaapi.OffsetResponse;
+import kafka.javaapi.PartitionMetadata;
+import kafka.javaapi.TopicMetadata;
+import kafka.javaapi.TopicMetadataRequest;
+import kafka.javaapi.TopicMetadataResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.message.MessageAndOffset;
 import kafka.producer.KeyedMessage;
@@ -19,8 +27,11 @@ import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaConf;
 import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaMetaMsg;
 import com.github.hackerwin7.mysql.parser.monitor.JrdwMonitorVo;
 import com.github.hackerwin7.mysql.parser.monitor.ParserMonitor;
-import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
-import org.apache.avro.io.*;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
 import org.apache.commons.lang.StringUtils;
@@ -29,7 +40,6 @@ import org.slf4j.LoggerFactory;
 import com.github.hackerwin7.mysql.parser.parser.utils.KafkaPosition;
 import com.github.hackerwin7.mysql.parser.parser.utils.ParserConf;
 import com.github.hackerwin7.mysql.parser.protocol.avro.EventEntryAvro;
-import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
 import com.github.hackerwin7.mysql.parser.protocol.protobuf.CanalEntry;
 import com.github.hackerwin7.mysql.parser.zk.client.ZkExecutor;
 import com.github.hackerwin7.mysql.parser.zk.utils.ZkConf;
@@ -38,16 +48,23 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Created by hp on 14-12-15.
  */
-public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
+public class HandlerMagpieKafkaCheckpointHBase implements MagpieExecutor {
     //logger
-    private Logger logger = LoggerFactory.getLogger(HandlerMagpieKafkaCheckpointZk.class);
+    private Logger logger = LoggerFactory.getLogger(HandlerMagpieKafkaCheckpointHBase.class);
     //constants
     public static final String LOG_HEAD_LINE = "===================================================> ";
     //final static var
@@ -186,7 +203,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 delay(3);
             }
         }
-        initZk();
+        //initZk();
         //queue
         msgQueue = new LinkedBlockingQueue<KafkaMetaMsg>(config.queuesize);
         //batchid inId
@@ -571,8 +588,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             String clientName = conf.clientName;
             consumer = new SimpleConsumer(leadBroker, leadPort, 100000, 64 * 1024, clientName);
             //load pos
-            //KafkaPosition pos = findCheckpointHBase();
-            KafkaPosition pos = findPosFromZk();
+            KafkaPosition pos = findCheckpointHBase();
             if (pos == null) {//find position failed......
                 globalFetchThread = 1;
                 if(consumer != null) {
@@ -783,8 +799,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
             while (count < ParserConf.CP_RETRY_COUNT) {
                 try {
                     if (!StringUtils.isBlank(ConCP)) {
-                        //cpUtil.writeCp(jobId, ConCP);
-                        writeCpZk(jobId, ConCP);
+                        cpUtil.writeCp(jobId, ConCP);
                         logger.info("----------> confirm checkpoint = " + ConCP);
                     } else {
                         logger.info("----------> nothing to confirm checkpoint, checkpoint is null");
@@ -800,15 +815,6 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                 globalFetchThread = 1;
             }
         }
-    }
-
-    private void writeCpZk(String jobId, String cp) throws Exception {
-        String path = config.persisPath + "/" + jobId;
-        String value = cp;
-        if(!zk.exists(path))
-            zk.create(path, value);
-        else
-            zk.set(path, value);
     }
 
     //num / size / yanshi / send kafka time | per batch
@@ -1360,12 +1366,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         entryAvro.setSrc(sourceCols);
                     }
                     //erase the rear "\u0001"
-                    try {
-                        keys = keys.substring(0, keys.lastIndexOf(div));//bug here
-                    } catch (Throwable e) {
-                        logger.error("primary key error!!, db.tb = " + dt);
-                        keys = "";
-                    }
+                    keys = keys.substring(0, keys.lastIndexOf(div));//bug here
                     byte[] value = getBytesFromAvro(entryAvro);
                     monitor.batchSize += value.length;
                     Long rowNum = monitor.topicRows.get(topic);

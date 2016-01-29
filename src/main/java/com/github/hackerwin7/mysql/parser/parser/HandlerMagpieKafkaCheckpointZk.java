@@ -1,5 +1,16 @@
-package com.jd.bdp.mysql.parser;
+package com.github.hackerwin7.mysql.parser.parser;
 
+import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
+import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaConf;
+import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaMetaMsg;
+import com.github.hackerwin7.mysql.parser.monitor.JrdwMonitorVo;
+import com.github.hackerwin7.mysql.parser.monitor.ParserMonitor;
+import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
+import com.github.hackerwin7.mysql.parser.parser.utils.KafkaPosition;
+import com.github.hackerwin7.mysql.parser.parser.utils.ParserConf;
+import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
+import com.github.hackerwin7.mysql.parser.zk.client.ZkExecutor;
+import com.github.hackerwin7.mysql.parser.zk.utils.ZkConf;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.jd.bdp.magpie.MagpieExecutor;
 import com.jd.bdp.monitors.commons.util.CheckpointUtil;
@@ -10,29 +21,18 @@ import kafka.api.PartitionOffsetRequestInfo;
 import kafka.cluster.Broker;
 import kafka.common.ErrorMapping;
 import kafka.common.TopicAndPartition;
-import com.github.hackerwin7.mysql.parser.kafka.driver.producer.KafkaSender;
 import kafka.javaapi.*;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.message.MessageAndOffset;
 import kafka.producer.KeyedMessage;
-import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaConf;
-import com.github.hackerwin7.mysql.parser.kafka.utils.KafkaMetaMsg;
-import com.github.hackerwin7.mysql.parser.monitor.JrdwMonitorVo;
-import com.github.hackerwin7.mysql.parser.monitor.ParserMonitor;
-import com.github.hackerwin7.mysql.parser.monitor.constants.JDMysqlParserMonitorType;
 import org.apache.avro.io.*;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.github.hackerwin7.mysql.parser.parser.utils.KafkaPosition;
-import com.github.hackerwin7.mysql.parser.parser.utils.ParserConf;
 import com.github.hackerwin7.mysql.parser.protocol.avro.EventEntryAvro;
-import com.github.hackerwin7.mysql.parser.protocol.json.JSONConvert;
 import com.github.hackerwin7.mysql.parser.protocol.protobuf.CanalEntry;
-import com.github.hackerwin7.mysql.parser.zk.client.ZkExecutor;
-import com.github.hackerwin7.mysql.parser.zk.utils.ZkConf;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1360,12 +1360,7 @@ public class HandlerMagpieKafkaCheckpointZk implements MagpieExecutor {
                         entryAvro.setSrc(sourceCols);
                     }
                     //erase the rear "\u0001"
-                    try {
-                        keys = keys.substring(0, keys.lastIndexOf(div));//bug here
-                    } catch (Throwable e) {
-                        logger.error("primary key error!!, db.tb = " + dt);
-                        keys = "";
-                    }
+                    keys = keys.substring(0, keys.lastIndexOf(div));//bug here
                     byte[] value = getBytesFromAvro(entryAvro);
                     monitor.batchSize += value.length;
                     Long rowNum = monitor.topicRows.get(topic);

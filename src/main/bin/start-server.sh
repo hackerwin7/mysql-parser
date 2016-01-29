@@ -92,7 +92,7 @@ then
     echo conf : $conf
     echo CLASSPATH : $CLASSPATH
     cd $base
-    $JAVA $JAVA_OPTS $JAVA_DEBUG_OPT $PARSER_OPTS -classpath .:$CLASSPATH deployer.LocalParser 1>>$base/logs/parser/console.log 2>&1 &
+    $JAVA $JAVA_OPTS $JAVA_DEBUG_OPT $PARSER_OPTS -classpath .:$CLASSPATH LocalParser 1>>$base/logs/parser/console.log 2>&1 &
     echo $! > $base/bin/parser.pid
 
     echo "cd to $current_path for continue"
