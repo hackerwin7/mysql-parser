@@ -87,6 +87,7 @@ public class ParserConf {
     public static final long CONFIRM_DELAY_START = 10 * 1000;//after 10 seconds, start the confirm timer task
     public static final long KAFKA_SEND_DEFAULT_BATCH_BYTES = 1024 * 1024;
     public static final long KAFKA_SEND_COMPRESS_BATCH_BYTES = 1000 * 1024;
+    public static final long KAFKA_SEND_UNCOMPRESSION_BATCH_BYTES = 10 * 1024 * 1024;
     public static final int KAFKA_RECONN_COUNT = 1;
     public static final int KAFKA_RETRY_COUNT = 3;
     //kafka batch send
@@ -251,7 +252,10 @@ public class ParserConf {
             }
         }
         //if compress set batch size
-        sendBatchBytes = KAFKA_SEND_COMPRESS_BATCH_BYTES;
+        if(!StringUtils.equalsIgnoreCase(kafkaCompression, "none"))
+            sendBatchBytes = KAFKA_SEND_COMPRESS_BATCH_BYTES;
+        else
+            sendBatchBytes = KAFKA_SEND_UNCOMPRESSION_BATCH_BYTES;
     }
 
     /**
@@ -315,8 +319,12 @@ public class ParserConf {
         if(data.containsKey("mid")) {
             mid = Long.valueOf(data.getString("mid"));
         }
+        kafkaCompression = "none";
         //if compress set batch size
-        sendBatchBytes = KAFKA_SEND_COMPRESS_BATCH_BYTES;
+        if(!StringUtils.equalsIgnoreCase(kafkaCompression, "none"))
+            sendBatchBytes = KAFKA_SEND_COMPRESS_BATCH_BYTES;
+        else
+            sendBatchBytes = KAFKA_SEND_UNCOMPRESSION_BATCH_BYTES;
     }
 
     public void clear() {
