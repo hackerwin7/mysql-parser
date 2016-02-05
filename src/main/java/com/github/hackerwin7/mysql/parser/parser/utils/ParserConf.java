@@ -42,8 +42,8 @@ public class ParserConf {
     public String persisPath = rootPath + "/persistence";
     public String minutePath = rootPath + "/minutes";
     //parser conf <database.table, topic> database.table could be a regex
-    public int batchsize = 10000;
-    public int queuesize = 20000;
+    public int batchsize = 50000; //default is 10000
+    public int queuesize = 80000; //default is 20000
     public int minsec = 1 * 60;
     public int heartsec = 1 * 60;
     public int timeInterval = 1;
@@ -51,7 +51,7 @@ public class ParserConf {
     public int retrys = 2;// 0 1 2, 3 times retry for zk
     public int conUnit = 1024;//1024 bytes
     public int fetchKb = 1024;//1024 Kb
-    public int requestSize = 1 * fetchKb * conUnit;//1 * fetchKb * conUnit;// 1 MB  (fetch size)
+    public int requestSize = 5 * fetchKb * conUnit;//1 * fetchKb * conUnit;// default is 1 MB  (fetch size)
     public double mbUnit = 1024.0 * 1024.0;
     public String jobId = "mysql-parser";
     public int spacesize = 8;//15 MB
